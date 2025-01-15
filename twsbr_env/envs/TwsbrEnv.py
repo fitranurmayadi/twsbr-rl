@@ -335,8 +335,8 @@ class TwsbrEnv(gym.Env):
         error_speed = self.target_speed - speed
         error_left_speed = self.target_speed - left_speed
         error_right_speed = self.target_speed - right_speed
-        reward = 4.0
         
+        reward = 1.0
         # Penalize large deviations from target values
         #reward_1 = -abs(error_speed)**2
         #reward += -(abs(error_speed * 10) **2)/5
@@ -345,10 +345,10 @@ class TwsbrEnv(gym.Env):
         #reward -= min((abs(pitch *10)**2), 0.5)
         #reward -= min((abs(yaw *10)**2), 1.0)
 
-        reward -= min((abs(error_left_speed * 10)**2), 1.0)
-        reward -= min((abs(error_right_speed * 10)**2), 1.0)
+        reward -= min((abs(error_left_speed * 10)**2)/5, 1.0)
+        reward -= min((abs(error_right_speed * 10)**2)/5, 1.0)
         reward -= min((abs(pitch *10)**2), 1.0)
-        reward -= min((abs(yaw *10)**2)/10, 1.0)
+        reward -= min((abs(yaw *10)**2), 1.0)
 
 
         #reward += 0.01 if abs(error_left_speed) < 0.01 else 0
