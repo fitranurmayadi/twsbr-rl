@@ -36,7 +36,7 @@ class TwsbrEnv(gym.Env):
         super(TwsbrEnv, self).__init__()
 
         # Bottom camera settings
-        self.projection_matrix = pybullet.computeProjectionMatrixFOV(fov=160.0, aspect=1.0, nearVal=0.0075, farVal=10)
+        self.projection_matrix = pybullet.computeProjectionMatrixFOV(fov=160.0, aspect=0.5, nearVal=0.0055, farVal=1)
         
         # Variabel global untuk menyimpan posisi terakhir garis
         self.prev_error_steer = 0  # Posisi terakhir yang terdeteksi
@@ -121,7 +121,7 @@ class TwsbrEnv(gym.Env):
         # Load ground plane and robot
         
         self.texture = os.path.join(os.path.abspath(os.path.dirname(__file__)), "texture", "random_line_trace_ground.png")
-        self.plane_id = self._bullet_client.loadURDF("plane.urdf", basePosition=[4.22, -0.700, 0.0], globalScaling=2.0)
+        self.plane_id = self._bullet_client.loadURDF("plane.urdf", basePosition=[4.50, -0.62, 0.0], globalScaling=2.0)
         
         self.tex_uid =  self._bullet_client.loadTexture(self.texture)
         self._bullet_client.changeVisualShape(self.plane_id, -1, textureUniqueId=self.tex_uid)
@@ -158,7 +158,6 @@ class TwsbrEnv(gym.Env):
             #self.robot_spinning_friction = np.random.uniform(0.5, 1.0)  # lateral friction
             #self.robot_wheels_inertial = np.random.uniform(0.0, 0.001, size=3)  # Random inertia [Ixx, Iyy, Izz]
 
-        self.target_speed = 0.075
         self.robot_id = self._bullet_client.loadURDF(self.urdf_file_name, basePosition=start_position, baseOrientation=start_orientation)
 
         self._bullet_client.setJointMotorControl2(self.robot_id, self.LEFT_WHEEL_JOINT_IDX, pybullet.VELOCITY_CONTROL, targetVelocity=0)
@@ -177,14 +176,14 @@ class TwsbrEnv(gym.Env):
         self.step_counter += 1
         truncated = True if self.step_counter >= self.truncation_steps else False
         #prev_speed, prev_pitch, prev_yaw, prev_left_speed, prev_right_speed, speed, pitch, yaw, left_speed, right_speed = self._get_obs()
-        terminated = True if abs(observation[5]) >= 0.5 or abs(observation[6]) >= 0.25 or abs(observation[7]) >= 1.0 else False #or or 
+        terminated = True if abs(observation[5]) >= 0.9 or abs(observation[6]) >= 0.25 or abs(observation[7]) >= 1.0 else False #or or 
         
         if truncated==True:
             info["is_success"] = True
-            reward += 25
+            reward += 10
         if terminated==True:
             info["is_success"] = False
-            reward -= 25
+            reward -= 10
         
         return observation.astype(np.float32), reward, terminated, truncated, info
 
@@ -268,6 +267,7 @@ class TwsbrEnv(gym.Env):
                 error_steer = width / 2  # Ujung kanan
             else:
                 error_steer = self.prev_error_steer  # Tetap posisi terakhir
+                
         else:  # Garis terdeteksi
             error_steer = cx - (width / 2)
             # Perbarui posisi terakhir berdasarkan cx
@@ -275,9 +275,12 @@ class TwsbrEnv(gym.Env):
                 self.line_last_position = "left"
             elif cx > width / 2:
                 self.line_last_position = "right"
-
         self.prev_error_steer = error_steer
         line_position = error_steer
+        if cx is None:
+            #print(f"\r {cx} ", end="")
+            line_position = 4.0
+        #print(f"\r {self.prev_error_steer}", end=" ")
         return line_position
 
     def _get_current_linear_speed(self):
@@ -332,11 +335,13 @@ class TwsbrEnv(gym.Env):
         #self.state_limit = np.array([25.0, np.pi, 4.0, 25.0, 25.0, 25.0, np.pi, 4.0, 25.0, 25.0])
         prev_speed, prev_pitch, prev_yaw, prev_left_speed, prev_right_speed, speed, pitch, yaw, left_speed, right_speed = self._get_obs()
         
+        
+        self.target_speed = 0.1
         error_speed = self.target_speed - speed
         error_left_speed = self.target_speed - left_speed
         error_right_speed = self.target_speed - right_speed
         
-        reward = 1.0
+        reward = 0.0
         # Penalize large deviations from target values
         #reward_1 = -abs(error_speed)**2
         #reward += -(abs(error_speed * 10) **2)/5
@@ -345,11 +350,20 @@ class TwsbrEnv(gym.Env):
         #reward -= min((abs(pitch *10)**2), 0.5)
         #reward -= min((abs(yaw *10)**2), 1.0)
 
-        reward -= min((abs(error_left_speed * 10)**2)/5, 1.0)
-        reward -= min((abs(error_right_speed * 10)**2)/5, 1.0)
-        reward -= min((abs(pitch *10)**2), 1.0)
-        reward -= min((abs(yaw *10)**2), 1.0)
+        reward += 0.125 if abs(error_left_speed) < 0.05 else -0.25
+        reward += 0.125 if abs(error_right_speed) < 0.05 else -0.25
 
+        reward += 0.125 if left_speed > 0.05 else 0.0
+        reward += 0.125 if right_speed > 0.05 else 0.0
+
+        reward += 0.25 if abs(pitch) < 0.1 else -0.75
+        #reward += 0.25 if abs(yaw) < 0.75 else -0.75
+
+        #reward += 0.2 if abs(pitch) < 0.05 else 0.0
+        
+        #reward -= (abs(pitch *10)**2)
+        reward -= (abs(yaw *10)**2)  
+        
 
         #reward += 0.01 if abs(error_left_speed) < 0.01 else 0
         #reward += 0.01 if abs(error_right_speed) < 0.01 else 0
@@ -361,7 +375,7 @@ class TwsbrEnv(gym.Env):
         #reward += 0.01 if abs(yaw) < 0.5 else -0.01
 
         if self.render_mode == "human":
-            print(f"\r State : {speed} | {left_speed} | {right_speed} | {pitch} | {yaw}: OK", end="")
+            print(f"\r State : {speed} | {left_speed} | {right_speed} | {pitch} | {yaw}: >>>>>>>>", end="")
         # Differential reward based on approaching or moving away from zero
         # Apply differential rewards
         #reward += 0.1 if abs(self.target_speed - speed) < abs(self.target_speed - prev_speed) else -0.1
