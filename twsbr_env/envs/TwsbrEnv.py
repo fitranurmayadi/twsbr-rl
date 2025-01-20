@@ -74,7 +74,8 @@ class TwsbrEnv(gym.Env):
         # add target speed as observation
 
         #self.state_limit = np.array([25.0, np.pi, 4.0, 255.0, 255.0, 25.0, np.pi, 4.0, 25.0, 25.0])
-        self.state_limit = np.array([25.0, 25.0, 25.0, 25.0, np.pi, 4.0])
+        # target_speed, speed, left_speed, right_speed, target_pitch, pitch, yaw
+        self.state_limit = np.array([25.0, 25.0, 25.0, 25.0, np.pi, np.pi, 4.0])
         
         self.observation_space = spaces.Box(low=-np.ones(self.state_limit.shape), high=np.ones(self.state_limit.shape)) 
         self.action_space = spaces.Discrete(len(self.discrete_velocity)*2) if action_type == "discrete" else spaces.Box(low=-1.0, high=1.0, shape=(2,)) # normalize version
@@ -83,8 +84,8 @@ class TwsbrEnv(gym.Env):
         #self.obs_min = np.array([-25.0, -np.pi, -4.0, -25.0, -25.0, -25.0, -np.pi, -4.0, -25.0, -25.0])
         #self.obs_max = np.array([25.0, np.pi, 4.0, 25.0, 25.0, 25.0, np.pi, 4.0, 25.0, 25.0])
         
-        self.obs_min = np.array([-25.0, -25.0, -25.0, -25.0, -np.pi, -4.0])
-        self.obs_max = np.array([25.0, 25.0, 25.0, 25.0, np.pi, 4.0])
+        self.obs_min = np.array([-25.0, -25.0, -25.0, -25.0, -np.pi, -np.pi, -4.0])
+        self.obs_max = np.array([25.0, 25.0, 25.0, 25.0, np.pi, np.pi, 4.0])
         
         self._physics_client_id = -1
         self.load_robot()
@@ -146,7 +147,8 @@ class TwsbrEnv(gym.Env):
         if self.render_mode == "human":
             #start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, random.uniform(-np.pi/8, np.pi/8), random.uniform(-np.pi/8, np.pi/8)]) 
             #start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, np.pi/4]) 
-            self.target_speed = 0.1
+            self.target_speed = 1.0
+            self.target_pitch = np.pi/20
             
             start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, 0])
 
@@ -155,7 +157,8 @@ class TwsbrEnv(gym.Env):
             start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, 0]) 
             #start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, 0]) 
         
-            self.target_speed = round(np.random.uniform(0.05, 0.15), 2) # randomize target speed
+            self.target_speed = 1.0, 2 # round(np.random.uniform(0.01, 0.05), 2) # randomize target speed
+            self.target_pitch = np.pi/20 #np.random.uniform(0.05, 0.1), 2) # randomize target speed
             #self.plane_lateral_friction = np.random.uniform(0.7, 1.0)  # lateral friction
             #self.plane_spinning_friction = np.random.uniform(0.5, 1.0)  # lateral friction
             
@@ -315,7 +318,7 @@ class TwsbrEnv(gym.Env):
         line = self._get_current_line_position()
         yaw = line
 
-        obs = np.array([self.target_speed, speed, left_speed, right_speed, pitch, yaw])
+        obs = np.array([self.target_speed, speed, left_speed, right_speed, self.target_pitch, pitch, yaw])
         
         #obs_temp = np.array([speed, pitch, yaw, left_speed, right_speed])
         #obs = np.concatenate((self.previous_state, obs_temp))
@@ -345,16 +348,17 @@ class TwsbrEnv(gym.Env):
         #self.state_limit = np.array([25.0, np.pi, 4.0, 25.0, 25.0, 25.0, np.pi, 4.0, 25.0, 25.0])
         #prev_speed, prev_pitch, prev_yaw, prev_left_speed, prev_right_speed, speed, pitch, yaw, left_speed, right_speed = self._get_obs()
         
-        target_speed, speed, left_speed, right_speed, pitch, yaw = self._get_obs()
+        target_speed, speed, left_speed, right_speed, target_pitch, pitch, yaw = self._get_obs()
         reward = 0
         
         # Reward  or penalty by pitch and yaw stability
-        reward += 1.0 - abs(pitch * 10)**2
-        reward += 1.0 - ((abs(yaw * 10)**2)/20)
+        reward -= abs((target_pitch - pitch) * 10)**2
+        reward -= (abs(yaw * 10)**2)/10
 
-        reward += 0.25 if left_speed > 0 and right_speed > 0 else 0.0
-        reward += 0.25 if left_speed > target_speed else 0.0
-        reward += 0.25 if right_speed > target_speed else 0.0
+        #reward += 0.25 if left_speed > 0 and right_speed > 0 else -0.125
+        #reward += 0.25 if speed > target_speed else -0.125
+        #reward += 0.25 if left_speed > target_speed and right_speed > target_speed else -0.125
+        
         
             
         #error_speed = self.target_speed - speed
@@ -452,7 +456,7 @@ class TwsbrEnv(gym.Env):
         #reward += 0.1 if abs(yaw) < 0.5 else -0.05
 
         if self.render_mode == "human":
-            print(f"\r State : {speed} | {left_speed} | {right_speed} | {pitch} | {yaw}: >>>>>>>>", end="")
+            print(f"\r State : {speed} | {left_speed} | {right_speed} | {pitch} | {yaw} | {target_speed} | {target_pitch}: >>>>>>>>", end="")
 
         return reward
 
