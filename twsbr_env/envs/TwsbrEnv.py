@@ -29,7 +29,7 @@ class TwsbrEnv(gym.Env):
                 robot_angle_limit=45,
                 action_type="continuous",
                 max_velocity=255,
-                truncation_steps=10000,
+                truncation_steps=1000,
                 debug_info = False
                 ):
 
@@ -71,21 +71,59 @@ class TwsbrEnv(gym.Env):
 
         # x_dot (velocity), pitch(balance angle), yaw(line angle), motor_left_speed, motor_right_speed
         # +-25 m/s , +- 90 degree(+-pi rad), +-16 units, left wheel, and right wheel ~ in  +-255 rad/s ( +- 40.6 rps or +- 1200 rpm) 
-        # add target speed as observation
+        self.state_limit = np.array([
+            np.pi,           # Pitch: ±π rad
+            4.0,             # Yaw (error posisi garis): ±4 unit
+            25.0,            # Kecepatan linear robot: ±25 m/s
+            25.0,            # Kecepatan roda kiri: ±25 m/s
+            25.0,            # Kecepatan roda kanan: ±25 m/s
+            1000.0,          # Putaran roda kiri (revolusi): ±1000
+            1000.0,          # Putaran roda kanan (revolusi): ±1000
+            np.pi,           # Pitch (state sebelumnya): ±π rad
+            4.0,             # Yaw sebelumnya: ±4 unit
+            25.0,            # Kecepatan linear sebelumnya: ±25 m/s
+            25.0,            # Kecepatan roda kiri sebelumnya: ±25 m/s
+            25.0,            # Kecepatan roda kanan sebelumnya: ±25 m/s
+            1000.0,          # Putaran roda kiri sebelumnya: ±1000
+            1000.0           # Putaran roda kanan sebelumnya: ±1000
+        ])
 
-        #self.state_limit = np.array([25.0, np.pi, 4.0, 255.0, 255.0, 25.0, np.pi, 4.0, 25.0, 25.0])
-        # target_speed, speed, left_speed, right_speed, target_pitch, pitch, yaw
-        self.state_limit = np.array([25.0, 25.0, 25.0, 25.0, np.pi, np.pi, 4.0])
-        
         self.observation_space = spaces.Box(low=-np.ones(self.state_limit.shape), high=np.ones(self.state_limit.shape)) 
         self.action_space = spaces.Discrete(len(self.discrete_velocity)*2) if action_type == "discrete" else spaces.Box(low=-1.0, high=1.0, shape=(2,)) # normalize version
         
-        
-        #self.obs_min = np.array([-25.0, -np.pi, -4.0, -25.0, -25.0, -25.0, -np.pi, -4.0, -25.0, -25.0])
-        #self.obs_max = np.array([25.0, np.pi, 4.0, 25.0, 25.0, 25.0, np.pi, 4.0, 25.0, 25.0])
-        
-        self.obs_min = np.array([-25.0, -25.0, -25.0, -25.0, -np.pi, -np.pi, -4.0])
-        self.obs_max = np.array([25.0, 25.0, 25.0, 25.0, np.pi, np.pi, 4.0])
+        self.obs_min = np.array([
+            -np.pi,           # Pitch: ±π rad
+            -4.0,             # Yaw (error posisi garis): ±4 unit
+            -25.0,            # Kecepatan linear robot: ±25 m/s
+            -25.0,            # Kecepatan roda kiri: ±25 m/s
+            -25.0,            # Kecepatan roda kanan: ±25 m/s
+            -1000.0,          # Putaran roda kiri (revolusi): ±1000
+            -1000.0,          # Putaran roda kanan (revolusi): ±1000
+            -np.pi,           # Pitch (state sebelumnya): ±π rad
+            -4.0,             # Yaw sebelumnya: ±4 unit
+            -25.0,            # Kecepatan linear sebelumnya: ±25 m/s
+            -25.0,            # Kecepatan roda kiri sebelumnya: ±25 m/s
+            -25.0,            # Kecepatan roda kanan sebelumnya: ±25 m/s
+            -1000.0,          # Putaran roda kiri sebelumnya: ±1000
+            -1000.0           # Putaran roda kanan sebelumnya: ±1000
+        ])
+
+        self.obs_max = np.array([
+            np.pi,           # Pitch: ±π rad
+            4.0,             # Yaw (error posisi garis): ±4 unit
+            25.0,            # Kecepatan linear robot: ±25 m/s
+            25.0,            # Kecepatan roda kiri: ±25 m/s
+            25.0,            # Kecepatan roda kanan: ±25 m/s
+            1000.0,          # Putaran roda kiri (revolusi): ±1000
+            1000.0,          # Putaran roda kanan (revolusi): ±1000
+            np.pi,           # Pitch (state sebelumnya): ±π rad
+            4.0,             # Yaw sebelumnya: ±4 unit
+            25.0,            # Kecepatan linear sebelumnya: ±25 m/s
+            25.0,            # Kecepatan roda kiri sebelumnya: ±25 m/s
+            25.0,            # Kecepatan roda kanan sebelumnya: ±25 m/s
+            1000.0,          # Putaran roda kiri sebelumnya: ±1000
+            1000.0           # Putaran roda kanan sebelumnya: ±1000
+        ])
         
         self._physics_client_id = -1
         self.load_robot()
@@ -95,9 +133,10 @@ class TwsbrEnv(gym.Env):
         super().reset(seed=seed)
         self.load_robot()
         self.step_counter = 0
+        self.initialize_wheel_variables()
         self.prev_error_steer = 0  # Posisi terakhir yang terdeteksi
         self.line_last_position = None  # None, "left", atau "right"
-        #self.previous_state = self._get_first_obs().astype(np.float32)
+        self.previous_state = self._get_first_obs().astype(np.float32)
         return self._get_obs().astype(np.float32), self._get_info() 
 
     def load_robot(self):
@@ -147,8 +186,7 @@ class TwsbrEnv(gym.Env):
         if self.render_mode == "human":
             #start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, random.uniform(-np.pi/8, np.pi/8), random.uniform(-np.pi/8, np.pi/8)]) 
             #start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, np.pi/4]) 
-            self.target_speed = 1.0
-            self.target_pitch = np.pi/20
+            self.target_speed = 0.1
             
             start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, 0])
 
@@ -157,8 +195,7 @@ class TwsbrEnv(gym.Env):
             start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, 0]) 
             #start_position, start_orientation = [0.0, 0.0, 0.0], pybullet.getQuaternionFromEuler([0, 0, 0]) 
         
-            self.target_speed = 1.0, 2 # round(np.random.uniform(0.01, 0.05), 2) # randomize target speed
-            self.target_pitch = np.pi/20 #np.random.uniform(0.05, 0.1), 2) # randomize target speed
+            self.target_speed = 0.1 #np.random.uniform(0.005, 0.02) # randomize target speed
             #self.plane_lateral_friction = np.random.uniform(0.7, 1.0)  # lateral friction
             #self.plane_spinning_friction = np.random.uniform(0.5, 1.0)  # lateral friction
             
@@ -186,14 +223,14 @@ class TwsbrEnv(gym.Env):
         self.step_counter += 1
         truncated = True if self.step_counter >= self.truncation_steps else False
         #prev_speed, prev_pitch, prev_yaw, prev_left_speed, prev_right_speed, speed, pitch, yaw, left_speed, right_speed = self._get_obs()
-        terminated = True if abs(observation[1]) >= 0.9 or abs(observation[4]) >= 0.25 or abs(observation[5]) > 0.9 else False #or or 
+        terminated = True if abs(observation[0]) >= 0.25 or abs(observation[1]) >= 0.90 or abs(observation[2]) >= 0.95 else False #or or 
         
         if truncated==True:
             info["is_success"] = True
-            reward += 100
+            reward += 10
         if terminated==True:
             info["is_success"] = False
-            reward -= 100
+            reward -= 0.0
         
         return observation.astype(np.float32), reward, terminated, truncated, info
 
@@ -293,37 +330,71 @@ class TwsbrEnv(gym.Env):
         #print(f"\r {self.prev_error_steer}", end=" ")
         return line_position
 
-    def _get_current_linear_speed(self):
+    def initialize_wheel_variables(self):
+        global prev_left_angle, prev_right_angle, left_wheel_revolutions, right_wheel_revolutions
+        prev_left_angle = 0.0
+        prev_right_angle = 0.0
+        left_wheel_revolutions = 0
+        right_wheel_revolutions = 0
+
+    def _get_wheel_data(self):
+        global prev_left_angle, prev_right_angle, left_wheel_revolutions, right_wheel_revolutions
+
         wheel_radius = 0.045  # 9cm / 2
-        left_wheel_velocity = pybullet.getJointState(self.robot_id, self.LEFT_WHEEL_JOINT_IDX)[1]
-        right_wheel_velocity = pybullet.getJointState(self.robot_id, self.RIGHT_WHEEL_JOINT_IDX)[1]
+
+        # Dapatkan kecepatan dan sudut roda dari PyBullet
+        left_wheel_state = pybullet.getJointState(self.robot_id, self.LEFT_WHEEL_JOINT_IDX)
+        right_wheel_state = pybullet.getJointState(self.robot_id, self.RIGHT_WHEEL_JOINT_IDX)
+
+        left_wheel_velocity = left_wheel_state[1]
+        right_wheel_velocity = right_wheel_state[1]
+        left_wheel_angle = left_wheel_state[0]
+        right_wheel_angle = right_wheel_state[0]
+
+        # Hitung perubahan sudut roda
+        delta_left_angle = left_wheel_angle - prev_left_angle
+        delta_right_angle = right_wheel_angle - prev_right_angle
+
+        # Koreksi untuk lompatan sudut di batas -π ke π
+        if abs(delta_left_angle) > np.pi:
+            delta_left_angle -= np.sign(delta_left_angle) * 2 * np.pi
+        if abs(delta_right_angle) > np.pi:
+            delta_right_angle -= np.sign(delta_right_angle) * 2 * np.pi
+
+        # Update jumlah putaran roda
+        left_wheel_revolutions += delta_left_angle / (2 * np.pi)
+        right_wheel_revolutions += delta_right_angle / (2 * np.pi)
+
+        # Simpan sudut saat ini untuk langkah berikutnya
+        prev_left_angle = left_wheel_angle
+        prev_right_angle = right_wheel_angle
+
+        # Hitung kecepatan linier
         avg_angular_velocity = (left_wheel_velocity + right_wheel_velocity) / 2
+        linear_speed = avg_angular_velocity * wheel_radius  # v = ω * r
         linear_left_wheel = left_wheel_velocity * wheel_radius
         linear_right_wheel = right_wheel_velocity * wheel_radius
-        linear_speed = avg_angular_velocity * wheel_radius  # v = ω * r
-        return linear_speed, linear_left_wheel, linear_right_wheel
+
+        return linear_speed, linear_left_wheel, linear_right_wheel, left_wheel_revolutions, right_wheel_revolutions
 
     def _get_first_obs(self):
-        speed, left_speed, right_speed = self._get_current_linear_speed()
+        linear_speed, linear_left_wheel, linear_right_wheel, left_wheel_revolutions, right_wheel_revolutions = self._get_wheel_data()
         pitch = self._get_current_angle()
         line = self._get_current_line_position()
         yaw = line 
-        obs = np.array([speed, pitch, yaw, left_speed, right_speed])
+        obs = np.array([pitch, yaw, linear_speed, linear_left_wheel, linear_right_wheel, left_wheel_revolutions, right_wheel_revolutions])
         return obs
 
     def _get_obs(self):
         # pitch, yaw_line, x_dot_motor_linear_speed,  motor_left_speed, motor_right_speed
-        speed, left_speed, right_speed = self._get_current_linear_speed()
+        linear_speed, linear_left_wheel, linear_right_wheel, left_wheel_revolutions, right_wheel_revolutions = self._get_wheel_data()
         pitch = self._get_current_angle()
         line = self._get_current_line_position()
         yaw = line
-
-        obs = np.array([self.target_speed, speed, left_speed, right_speed, self.target_pitch, pitch, yaw])
+        obs_temp = np.array([pitch, yaw, linear_speed, linear_left_wheel, linear_right_wheel, left_wheel_revolutions, right_wheel_revolutions])
+        obs = np.concatenate((obs_temp, self.previous_state))
         
-        #obs_temp = np.array([speed, pitch, yaw, left_speed, right_speed])
-        #obs = np.concatenate((self.previous_state, obs_temp))
-        
-        #self.previous_state = obs_temp
+        self.previous_state = obs_temp
         return self._normalize_obs(obs)
 
     def _normalize_obs(self, obs):
@@ -333,131 +404,57 @@ class TwsbrEnv(gym.Env):
         return value * (max_value - min_value) / 2 + (max_value + min_value) / 2
 
     def _get_reward(self):
+        # Ambil observasi
+        pitch, yaw, linear_speed, linear_left_wheel, linear_right_wheel, left_wheel_revolutions, right_wheel_revolutions, prev_pitch, prev_yaw, prev_linear_speed, prev_linear_left_wheel, prev_linear_right_wheel, prev_left_wheel_revolutions, prev_right_wheel_revolutions = self._get_obs()
 
-        # +-25 m/s , +- 90 degree(+-pi rad), +-4 units, left wheel, and right wheel ~ in  +-255 rad/s ( +- 40.6 rps or +- 1200 rpm) 
-        # 1 = 25               1 = 180          1   =  4
-        # 0.5 = 12.5           0.5 = 90         0.5 =  2
-        # 0.1 = 2.5            0.1 = 18         0.1 =  1
-        # 0.05 = 1.25          0.05 = 9         0.05 = 0.2
-        # 0.01 = 0.125 m/s     0.01 = 1.8 deg   0.01 = 0.1 unit
-        
-        #max error   0.05 (1.25 m/s),  0.05 (9 deg), 0.5 (8 unit) 
-        #0.95 = 90.25, 0.25= 6.25 ,0.95 = 0.9025
-        #0.05 = 0.25, 0.05= 0.25 , 0.5 = 0.25
-        
-        #self.state_limit = np.array([25.0, np.pi, 4.0, 25.0, 25.0, 25.0, np.pi, 4.0, 25.0, 25.0])
-        #prev_speed, prev_pitch, prev_yaw, prev_left_speed, prev_right_speed, speed, pitch, yaw, left_speed, right_speed = self._get_obs()
-        
-        target_speed, speed, left_speed, right_speed, target_pitch, pitch, yaw = self._get_obs()
-        reward = 0
-        
-        # Reward  or penalty by pitch and yaw stability
-        reward -= abs((target_pitch - pitch) * 10)**2
-        reward -= (abs(yaw * 10)**2)/10
+        target_revolutions = 1.0
+        target_pitch = 0.05  # 9 degree
+        target_speed = 0.1  # 0.5 m/s
+        speed_penalty_factor = 3.0
+        pitch_penalty_factor = 3.0
+        yaw_penalty_factor = 3.0
 
-        #reward += 0.25 if left_speed > 0 and right_speed > 0 else -0.125
-        #reward += 0.25 if speed > target_speed else -0.125
-        #reward += 0.25 if left_speed > target_speed and right_speed > target_speed else -0.125
-        
-        
-            
-        #error_speed = self.target_speed - speed
-        #error_left_speed = self.target_speed - left_speed
-        #error_right_speed = self.target_speed - right_speed
+        current_revolutions = (left_wheel_revolutions + right_wheel_revolutions) / 2
+        previous_revolutions = (prev_left_wheel_revolutions + prev_right_wheel_revolutions) / 2
 
-        #reward += 1.0 - (abs(error_left_speed - error_right_speed) * 10)
-        #reward += 1.0 - (abs(self.target_speed - speed) * 10)
+        differential_wheels_speed =  (linear_left_wheel - linear_right_wheel)
+        differential_wheels_revolution = (left_wheel_revolutions - right_wheel_revolutions)
 
+        # Perhitungan reward
+        reward = 0.0
+        # Insentif bertahan lama
+        reward += 0.25
+
+
+        reward += 0.1 - ((abs(pitch * 10) **2)) * 0.25
+        reward += 0.1 - ((abs(yaw * 10) **2)/10) * 0.125
+        reward += 0.1 - ((abs((target_speed - linear_speed) * 10) **2)) * 0.25
+        reward -= (target_revolutions - current_revolutions) * 1.0
+
+        # Insentif untuk kecepatan roda kiri dan kanan yang seimbang
+        #reward -= abs(differential_wheels_speed)**2  # Penalti jika kecepatan berbeda
+        #reward -= abs(differential_wheels_revolution)**2  # Penalti jika revolusi berbeda
         
         
-        # Penalize large deviations from target values        
-        #reward += abs(error_speed)**2 
-        #reward += -1 if left_speed < (self.target_speed * 50) else -abs(error_left_speed )**2 
-        #reward += -1 if right_speed < (self.target_speed * 50) else -abs(error_right_speed)**2
-
-        #reward -= abs(pitch * 10)**2 
-        #reward -= abs(yaw)**2
-       
-        #reward for near the target
-        #reward += (self.target_speed - error_speed) if speed > (self.target_speed * 50) else 0.0
-        #reward += (self.target_speed - error_left_speed) if left_speed > (self.target_speed * 50) else 0.0
-        #reward += (self.target_speed - error_right_speed) if right_speed > (self.target_speed * 50) else 0.0
-
-        # Small rewards for stable conditions
-        #reward += 0.25 - abs(error_speed) if abs(error_speed) < (self.target_speed * 0.75) else abs(error_speed)
-        #reward += 0.25 - abs(pitch*10)**2 if abs(pitch) < 0.05 else -abs(pitch*10)**2
-        #reward += 0.25 - abs(yaw)**2 if abs(yaw) < 0.5 else -abs(yaw)**2
-
-
-        # Differential reward based on approaching or moving away from zero
-        # Apply differential rewards
-        #reward += 0.2 if abs(self.target_speed - speed) < abs(self.target_speed - prev_speed) else -0.1
-        #reward += 0.2 if abs(self.target_speed - left_speed) < abs(self.target_speed - prev_left_speed) else -0.1
-        #reward += 0.2 if abs(self.target_speed - right_speed) < abs(self.target_speed - prev_right_speed) else -0.1
-        #reward += 0.1 if abs(pitch) < abs(prev_pitch) else -0.05
-        #reward += 0.1 if abs(yaw) < abs(prev_yaw) else -0.05
-
+        # Insentif untuk pergerakan maju
+        reward += 0.1 if current_revolutions > previous_revolutions and left_wheel_revolutions > 0 and right_wheel_revolutions > 0 else -0.02
         
-        # Penalize large deviations from target values
-        #reward_1 = -abs(error_speed)**2
-        #reward += -(abs(error_speed * 10) **2)/5
-        #reward -= min((abs(error_left_speed * 10)**2)/5, 0.5)
-        #reward -= min((abs(error_right_speed * 10)**2)/5, 0.5)
-        #reward -= min((abs(pitch *10)**2), 0.5)
-        #reward -= min((abs(yaw *10)**2), 1.0)
+        # Reward untuk stabil
+        #reward += 0.1 if abs(pitch) < 0.1 else 0.0
+        #reward += 0.1 if abs(yaw) < 0.251 else 0.0
+        #reward += (1 - ((target_revolutions - current_revolutions))) * 0.5
 
-        #reward += 0.125 if abs(error_left_speed) < 0.005 else -0.25
-        #reward += 0.125 if abs(error_right_speed) < 0.005 else -0.25
-
-        #reward += 0.125 if left_speed > 0.005 else -0.25
-        #reward += 0.125 if right_speed > 0.005 else -0.25
-
-        #reward += 0.25 if abs(pitch) < 0.05 else -0.75
-        #reward += 0.25 if abs(yaw) < 0.5 else -0.75
-
-        #reward += 0.2 if abs(pitch) < 0.05 else 0.0
-
-        #reward -= (abs(error_speed * 10) **2)
-        #reward -= (abs(error_left_speed * 4) **2)
-        #reward -= (abs(error_right_speed * 4) **2)
-
-        
-        
-
-        #reward += 0.01 if abs(error_left_speed) < 0.01 else 0
-        #reward += 0.01 if abs(error_right_speed) < 0.01 else 0
-        #reward += 0.25 if speed > 0.0 and speed < self.target_speed else -0.25
-        #reward += 0.25 if left_speed > 0.0 and left_speed < self.target_speed else -0.25
-        #reward += 0.25 if right_speed > 0.0 and right_speed < self.target_speed else -0.25
-
-        #reward += 0.25 if abs(pitch) < 0.05 else -0.25
-        #reward += 0.25 if abs(yaw) < 0.5 else -0.25
-
-        
-        # Differential reward based on approaching or moving away from zero
-        # Apply differential rewards
-        #reward += 0.1 if abs(self.target_speed - speed) < abs(self.target_speed - prev_speed) else -0.1
-        #reward += 0.1 if abs(self.target_speed - left_speed) < abs(self.target_speed - prev_left_speed) else -0.1
-        #reward += 0.1 if abs(self.target_speed - right_speed) < abs(self.target_speed - prev_right_speed) else -0.1
-        #reward += 0.1 if abs(pitch) < abs(prev_pitch) else -0.1
-        #reward += 0.1 if abs(yaw) < abs(prev_yaw) else -0.1
-
-        # Small rewards for stable conditions
-        #reward += 0.5 if speed > 0 else -0.5
-        #reward += 0.5 - abs(error_left_speed * 10) if abs(error_left_speed) < 0.001 else -(abs(error_left_speed) * 100)**2 / 100
-        #reward += 0.5 - abs(error_right_speed * 10) if abs(error_right_speed) < 0.001 else -(abs(error_right_speed) * 100)**2 / 100
-        #reward += 0.5 - abs(pitch * 10) if abs(pitch) < 0.1 else -(abs(pitch) * 100)**2 / 100
-        #reward += 0.5 - abs(yaw * 10) if abs(yaw) < 0.25 else -(abs(yaw) * 10)**2 / 100
-        
-        #reward += 0.1 if abs(error_speed) < 0.0001 else -0.05
-        #reward += 0.1 if abs(error_left_speed) < 0.0001 else -0.05
-        #reward += 0.1 if abs(error_right_speed) < 0.0001 else -0.05
-        #reward += 0.1 if abs(pitch) < 0.1 else -0.05
-        #reward += 0.1 if abs(yaw) < 0.5 else -0.05
-
-        if self.render_mode == "human":
-            print(f"\r State : {speed} | {left_speed} | {right_speed} | {pitch} | {yaw} | {target_speed} | {target_pitch}: >>>>>>>>", end="")
-
+        if self.render_mode == "human":        
+            print(f"Pitch: {pitch:.4f}, Yaw: {yaw:.4f}, Linear Speed: {linear_speed:.4f}, "
+            f"Linear Left Wheel: {linear_left_wheel:.4f}, Linear Right Wheel: {linear_right_wheel:.4f}, "
+            f"Left Wheel Revolutions: {left_wheel_revolutions:.4f}, Right Wheel Revolutions: {right_wheel_revolutions:.4f}, "
+            f"Previous Pitch: {prev_pitch:.4f}, Previous Yaw: {prev_yaw:.4f}, "
+            f"Previous Linear Speed: {prev_linear_speed:.4f}, "
+            f"Previous Linear Left Wheel: {prev_linear_left_wheel:.4f}, "
+            f"Previous Linear Right Wheel: {prev_linear_right_wheel:.4f}, "
+            f"Previous Left Wheel Revolutions: {prev_left_wheel_revolutions:.4f}, "
+            f"Previous Right Wheel Revolutions: {prev_right_wheel_revolutions:.4f}"
+            )
         return reward
 
     def _get_info(self):
